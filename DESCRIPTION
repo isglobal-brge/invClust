@@ -1,0 +1,16 @@
+Package: invClust
+Type: Package
+Title: inference of invarsion alleles from biallelic haplotype
+        clustering
+Version: 1.0
+Date: 2015-02-25
+Author: Alejandro Caceres and Juan R Gonzalez 
+Maintainer: Alejandro Caceres <acaceres@creal.cat>
+Description: The package is an implementation of mixture model fitting with Hardy Weinberg Equilibrium and population stratification to infer haplotype (inversion) alleles.  
+License: GPL (>= 2)
+LazyLoad: yes
+Depends: R (>= 2.10)
+Suggests: parallel
+Imports: graphics, methods,MASS, snpStats, mclust, mvtnorm, e1071
+biocViews: Microarray, SNPsAndGeneticVariability
+Packaged: 2015-02-26 16:04:29 UTC; acaceres

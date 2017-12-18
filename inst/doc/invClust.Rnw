@@ -1,0 +1,272 @@
+% -*- mode: noweb; noweb-default-code-mode: R-mode; -*-
+%\VignetteIndexEntry{ampliQueso primer}
+%\VignetteKeywords{}
+%\VignetteDepends{}
+%\VignettePackage{rnaSeqMap}
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage[numbers]{natbib}
+\usepackage{color}
+\usepackage[utf8]{inputenc} 
+
+
+
+\renewcommand*\familydefault{\sfdefault}
+
+\definecolor{NoteGrey}{rgb}{0.96,0.97,0.98}
+
+
+\textwidth=6.2in
+\textheight=9.5in
+@ \parskip=.3cm
+\oddsidemargin=.1in
+\evensidemargin=.1in
+\headheight=-1in
+
+\newcommand{\scscst}{\scriptscriptstyle}
+\newcommand{\scst}{\scriptstyle}
+\newcommand{\Rfunction}[1]{{\texttt{#1}}}
+\newcommand{\Robject}[1]{{\texttt{#1}}}
+\newcommand{\Rpackage}[1]{{\textit{#1}}}
+\newcommand{\code}[1]{{\texttt{#1}}}
+
+\author{Alejandro C\'aceres, Juan R. Gonz\'alez \\
+{\small Center for Research in Environmental Epidemiology (CREAL), Barcelona, Spain} \\
+{\small Bioinformatics Research Group in Epidemiolgy (http://www.creal.cat/brge.htm)}}
+\begin{document}
+\title{\code{invClust}: inference of polymorphic inversions from multivariate analysis on SNP data }
+
+\maketitle
+
+
+
+%\tableofcontents
+%\newpage
+
+%\section{Recent changes and updates}
+
+\section{Introduction}
+
+\code{invClust} is a method to detect inversion-related haplotypes in SNP data \cite{caceres}. Under the presence 
+of an inversion polymorphism in the population sample, one can expect to find three clearly differentiated  
+haplotype-genotypes supported by the suppression of recombination associated with the inversion \cite{ma2012investigation}. 
+The haplotype-genotypes are the combination of two haplotypes each of which tag an inversion state 
+(standard: NI or inverted: I). 
+
+The algorithm first performs a multidimensional scaling (MS) of SNP genotypes within the inverted segment \cite{salm}.
+Using the first two components of the MS analysis, the algorithm then decides whether there is a three-cluster pattern in 
+the data, each corresponding to a haplotype-genotype. If this is the case, then inversion status is given for 
+each individual, assuming that the discovered haplotypes tag the inversion. The result is a list with the 
+inferred inversion genotypes per individual (NI/NI: non-inverted homozygous, NI/I: inverted heterozygous, I/I:
+inverted homozygous). 
+
+More technically, the clustering of the three genotypes is based on a mixture modelling which assumes that 
+the homozygous groups are equidistant from the heterozygous group, and that the frequency of the inversion alleles 
+are in Hardy-Weinberg Equilibrium.  
+
+The inference is performed on a region of interest (ROI), internal to inversion being interrogated. Optimally, the ROI 
+should extend to the breakpoints of the inversion to include all the SNPs within the inverted segment. However,
+since not all SNPs are informative, the analyses are robust under some variation in the brake-points     
+
+\section{Preparing data}
+Load the package
+<<label=loadpck,echo=TRUE>>=
+library(invClust)
+@
+
+We have developed the method to read genotypes in the \code{SnpMatrix} format from the \code{snpStats} package from 
+bioconductor which can be installed as
+<<label=SNPstats,echo=TRUE,eval=FALSE>>=
+source("http://bioconductor.org/biocLite.R")
+biocLite("snpStats")
+@
+
+The main advantage of this format is that binary PLINK files (http://pngu.mgh.harvard.edu/~purcell/plink/), supported 
+by most dbGap (http://www.ncbi.nlm.nih.gov/gap) studies, can be readily loaded. Having the three PLINK files, 
+like genosPLINK.bed, genosPLINK.bim, genosPLINK.fam, the genotype are loaded as 
+%genofile <- system.file("extdata", "haplotypesROI.txt", package = "inveRsion")
+<<label=load,echo=TRUE>>=
+library(snpStats)
+path<-system.file("extdata", package = "invClust")
+genofile<-file.path(path,"genosPLINK")
+#genofile is the path where the genoPLINK demo files are stored
+#use your own path for your own data 
+geno.data<-read.plink(genofile)
+@
+
+The SNP genotypes and annotation to be used by \code{invClust} are simply coded in two variables 
+\code{"geno"} (as a SnpMatrix object) 
+
+<<label=geno,echo=TRUE>>=
+geno<-geno.data$genotypes
+geno
+@
+
+and \code{"annot"}; a variable with three columns (chromosome, snp.name and position)  
+<<label=anot,echo=TRUE>>=
+annot.read<-geno.data$map
+annot<-annot.read[,c(1,2,4)]
+head(annot)
+@ 
+
+please keep the strict order of the columns and the increasing order on the SNP positions. Genotype SNP names
+must match the ordering of the SNP names in the annotation. 
+
+<<label=check,echo=TRUE>>=
+identical(annot[,2],colnames(geno))
+@
+The genotypes in the current example correspond to the SNPs within the
+inv-8p23 for the CEU subjects of the HapMap that we have sub-selected for illustration. The complete data set
+can be found in (ftp://ftp.ncbi.nlm.nih.gov/hapmap/genotypes/2009-01\_phaseIII/plink\_format/) and conversion from
+.ped .map to .bin, .fam and .map formats can be done with PLINK.
+ 
+Note that if you do not have your genotypes in PLINK format you can still create a SnpMatrix with the function \code{new} 
+using your genotypes coded as 0,1 and 2  
+<<label=check,echo=TRUE,eval=TRUE>>=
+geno.mat<-matrix(c(0,0,1,2,0,0),ncol=2)
+rownames(geno.mat)<-c("sub1","sub2","sub3")
+colnames(geno.mat)<-c("rs1","rs2")
+geno.raw<-matrix(as.raw(geno.mat+1),ncol=ncol(geno.mat))
+geno.new<-new("SnpMatrix", geno.mat)
+geno.new
+@
+ 
+\section{Running \code{invClust}} 
+Now an ROI {\code data.frame} should be provided with the inversion brake-points where we would like to run the analysis.
+The ROI can be passed as a \code{data.frame} variable or as a file with the list of regions to be tested. Here 
+we illustrate the ROI defined by inv-8p23 
+
+<<label=check,echo=TRUE>>=
+roi<-data.frame(chr=8,LBP=7934925, RBP=11824441, reg= "inv1")
+@   
+
+the algorithm is called with the function \code{invClust}
+
+<<label=call,echo=TRUE,eval=FALSE>>=
+invcall<-invClust(roi=roi, wh = 1, geno=geno, annot=annot, dim=2)
+@
+
+where the parameters \code{wh} refer to the ROI we want to analyze, in case that the roi \code{data.frame} has more than one ROI,
+and dim is the number of dimensions kept in the MDS analysis. If you have more than one ROI to test, the roi argument can also 
+be the file name (e.g "ROI.txt") where the ROIs are stored under the format
+\begin{verbatim}
+  chr   LBP       RBP       reg
+1 8     7934925   11824441  inv1
+2 17    41026708  41685507  inv2       
+..
+\end{verbatim}
+
+in this case \code{invClust} can be called like
+
+<<label=check,echo=TRUE,eval=FALSE>>=
+invcall<-invClust(roi="ROI.txt", wh = 1, geno=geno, annot=annot, dim=2)
+@   
+
+
+
+<<label=calltrue,echo=FALSE,eval=TRUE>>=
+quiet <- function(x) {
+  sink(tempfile())
+  on.exit(sink())
+  invisible(force(x))
+}
+invcall<-quiet(invClust(roi=roi, wh = 1, geno=geno, annot=annot, dim=2))
+@
+
+The algorithm computes the mixture model using an expectation maximization 
+routine with 
+two main initial conditions; one close to inversion frequency near zero and other around 50\%. From these two models 
+and one with no inversion signal (a Gaussian model with no clusters), it selects the model with highest Bayes Information Criterion (BIC).
+
+The result is a object of class \code{invClust}
+<<label=print,echo=TRUE>>=
+invcall
+@
+
+the print of the object gives you a brief description on the main parameters in the computation. The MDS analysis with the mixture model can be plotted 
+
+<<label=plot,echo=TRUE,fig=TRUE>>=
+invcall
+plot(invcall)
+@
+
+
+The inversion-genotypes are easily extracted with 
+<<label=invgeno,echo=TRUE>>=
+inv<-invGenotypes(invcall)
+head(inv)
+@
+ 
+Note that the inversion genotype NI/NI is by default the most frequent allele in the population. To compute the reference allele as 
+the ancestral allele we recommend to 1) extract the predicted ancestral alleles for each SNP in the inversion 
+(1000 genomes) 2) add a homozygous subject for all the ancestral SNP alleles in your genotypes and 3) identify the 
+homozygous group in which this subject falls as the ancestral configuration.
+
+Finally the inversion genotypes can also be computed from their probabilities of belonging to each genotype cluster    
+<<label=invUnc,echo=TRUE>>=
+invUnc<-invcall["genotypes"]
+head(invUnc)
+@
+
+\section{Association Tests}
+
+As an example we show how to perform association tests of these genotypes using the package \code{SNPassoc}
+that can be accessed in r-cran
+
+<<label=snpassoc,echo=TRUE, eval=FALSE>>=
+install.packages("SNPassoc")
+@
+<<label=snpassoc,echo=TRUE>>=
+library(SNPassoc)
+@
+
+We have simulated a normalized BMI that can be found in the file {\code BMI} (separated by TAB).
+
+<<label=BMI,echo=TRUE>>=
+path<-system.file("extdata", package = "invClust")
+phenofile<-file.path(path,"BMI.txt")
+BMI<-read.delim(phenofile,as.is=TRUE)
+head(BMI)
+@
+
+We merge the genotype and phenotype data checking the correct order for the subjects' IDs.
+<<label=BMI,echo=TRUE>>=
+identical(BMI$ID, names(inv))
+data<-cbind(BMI,inv)
+@
+
+Before association tests \code{SNPassoc} requires setting up the genotype columns as class \code{snp}
+<<label=setup,echo=TRUE>>=
+data.end<-setupSNP(data,colSNPs=3)
+head(data.end)
+class(data.end$inv)
+@
+
+We can then test association for all the genetic models of the polymorphic inversion 
+<<label=setup,echo=TRUE>>=
+association(BMI~inv,data.end)
+@
+
+
+
+\begin{thebibliography}{9}
+\bibitem{caceres}
+C{\'a}ceres and
+Gonz{\'a}lez, J.~R. (2015)
+Following the footprints of polymorphic inversions on SNP data: from detection to association tests.
+{\em NAR}, {\bf doi}:10.1093/nar/gkv073 .
+\bibitem{ma2012investigation}
+Ma, J. and Amos, C.~I. (2012)
+Investigation of Inversion Polymorphisms in the Human Genome Using Principal Components Analysis.
+{\em PLOS ONE}, {\bf 7}, e40224.
+\bibitem{salm}
+Salm, M.~P., Horswell, S.~D., Hutchison, C.~E., Speedy, H.~E., Yang, X., Liang,
+L., Schadt, E.~E., Cookson, W.~O., Wierzbicki, A.~S., Naoumova, R.~P., et al.
+(2012)
+The origin, global distribution, and functional impact of the human 8p23 inversion polymorphism.
+{\em Genome Res.}, {\bf 22}, 1144.
+\end{thebibliography}
+
+
+\end{document}
