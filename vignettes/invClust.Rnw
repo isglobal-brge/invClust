@@ -35,6 +35,7 @@
 {\small Center for Research in Environmental Epidemiology (CREAL), Barcelona, Spain} \\
 {\small Bioinformatics Research Group in Epidemiolgy (http://www.creal.cat/brge.htm)}}
 \begin{document}
+\SweaveOpts{concordance=TRUE}
 \title{\code{invClust}: inference of polymorphic inversions from multivariate analysis on SNP data }
 
 \maketitle
